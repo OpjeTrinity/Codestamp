@@ -6,7 +6,7 @@
 4.Thats all! you can find the converted text files in under a single folder where you can view and edit as per your needs.
 
 
-Ideaation By : Paul Babu
+Ideation By : Paul Babu
 Script By :Vivek Rajeev
 
 
