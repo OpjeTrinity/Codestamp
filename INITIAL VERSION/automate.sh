@@ -20,12 +20,10 @@ identify_language() {
 add_student_info() {
   local file=$1
   local name=$2
-  local class=$3
+  local batch=$3
   local roll_no=$4
   local language=$5
-
-  # Extract the filename (without the path) to use as the program title
-  program_title=$(basename "$file")
+  local program_title=$6
 
   # Set comment prefix and suffix based on detected language
   case $language in
@@ -49,7 +47,7 @@ add_student_info() {
 
   # Construct the multi-line comment text with program title
   comment="$comment_prefix\n"
-  comment="$comment\nProgram Title: $program_title"
+  comment="$comment\nProgram Title: ${program_title:-"Untitled Program"}"
   comment="$comment\nStudent Name: $name"
   comment="$comment\nClass: $class"
   comment="$comment\nRoll No: $roll_no"
@@ -71,7 +69,18 @@ convert_to_text() {
   cp "$input_file" "$output_file"
 }
 
-# GUI to get the student's details
+# Get student details in separate dialogs
+name=$(zenity --entry --title="Student Info" --text="Enter the student's name:" --width=300)
+class=$(zenity --entry --title="Student Info" --text="Enter the class:" --width=300)
+roll_no=$(zenity --entry --title="Student Info" --text="Enter the roll number:" --width=300)
+
+# Exit if any of the fields are empty
+if [ -z "$name" ] || [ -z "$class" ] || [ -z "$roll_no" ]; then
+  zenity --error --text="All fields are required! Exiting."
+  exit 1
+fi
+
+# Ask the user to select files
 files=$(zenity --file-selection --title="Select the program files" --file-filter="*.*" --multiple --separator="|")
 if [ -z "$files" ]; then
   # If no files selected, offer a "Select All Files" button
@@ -89,45 +98,29 @@ if [ -z "$files" ]; then
   fi
 fi
 
-name=$(zenity --entry --title="Student Info" --text="Enter the student's name:" --width=300)
-class=$(zenity --entry --title="Student Info" --text="Enter the class:" --width=300)
-roll_no=$(zenity --entry --title="Student Info" --text="Enter the roll number:" --width=300)
+# Show a warning dialog instructing the user to enter program titles in the correct order
+zenity --info --title="Important Information" --text="Please make sure to enter the program titles in the **exact order** as the files you selected. Each program title corresponds to a file in the same order." --width=400
 
-# Check if any input is empty
-if [ -z "$name" ] || [ -z "$class" ] || [ -z "$roll_no" ]; then
-  zenity --error --text="All fields are required! Exiting."
+# Ask for multiple program titles (one per line), instructing the user to enter them in order
+program_titles=$(zenity --text-info --title="Enter Program Titles" --width=400 --height=300 --editable \
+--text="Please enter the program titles in the exact order for each of the files selected, one per line.\nPress OK when done:")
+
+# Exit if no titles are entered
+if [ -z "$program_titles" ]; then
+  zenity --error --text="No program titles entered. Exiting."
   exit 1
 fi
 
-# Ask if the user wants to rename files
-rename_files=$(zenity --question --text="Do you want to rename the files?" --width=300 --ok-label="Yes" --cancel-label="No")
+# Convert the input into an array of program titles (splitting by new lines)
+IFS=$'\n' read -r -d '' -a program_titles_array <<< "$program_titles"
 
-# Ask the user to paste the list of new file names if renaming is selected
-if [ $? -eq 0 ]; then
-  new_names=$(zenity --entry --title="Rename Files" --text="Enter the list of new names (comma separated, e.g., apple,microsoft,google,teemu):" --width=400)
+# Check if the number of program titles matches the number of files
+num_files=$(echo "$files" | tr '|' '\n' | wc -l)
+num_titles=${#program_titles_array[@]}
 
-  # Check if the new names list is provided
-  if [ -z "$new_names" ]; then
-    zenity --error --text="No list of names provided! Exiting."
-    exit 1
-  fi
-
-  # Split the comma-separated list into an array
-  IFS=',' read -r -a names_array <<< "$new_names"
-
-  # Check if the number of names matches the number of files
-  num_files=$(echo "$files" | tr '|' '\n' | wc -l)
-  num_names=${#names_array[@]}
-
-  if [ "$num_files" -ne "$num_names" ]; then
-    zenity --error --text="The number of files does not match the number of names in the list. Exiting."
-    exit 1
-  fi
-
-  # Confirm the renaming with a warning
-  zenity --warning --text="In order to correctly rename the files, both the list and the files should be in order. Proceeding will rename the files in the provided order."
-else
-  rename_files="no"
+if [ "$num_files" -ne "$num_titles" ]; then
+  zenity --error --text="The number of files does not match the number of titles entered. Exiting."
+  exit 1
 fi
 
 # Ask if all files are the same type
@@ -140,6 +133,7 @@ else
   # Otherwise, ask for the language of each file individually
   language=""
   IFS="|" # Set the separator to handle multiple files
+  i=0
   for file in $files; do
     # Automatically identify language
     detected_language=$(identify_language "$file")
@@ -150,8 +144,9 @@ else
         TRUE "java" FALSE "python" FALSE "cpp" FALSE "javascript" FALSE "php")
     fi
 
-    # Process the file based on user input
-    add_student_info "$file" "$name" "$class" "$roll_no" "$detected_language"
+    # Add the student info to the file with corresponding program title
+    add_student_info "$file" "$name" "$class" "$roll_no" "$detected_language" "${program_titles_array[$i]}"
+    i=$((i+1))
   done
   exit 0
 fi
@@ -164,17 +159,8 @@ mkdir -p "$output_folder"
 IFS="|" # Set the separator to handle multiple files
 i=0
 for file in $files; do
-  # Add student info to the file
-  add_student_info "$file" "$name" "$class" "$roll_no" "$language"
-  
-  if [ "$rename_files" = "yes" ]; then
-    # Rename the file according to the corresponding name in the list
-    new_name="${names_array[$i]}"
-    
-    # Check if the new name is provided and rename the file
-    mv "$file" "$new_name"
-    file="$new_name"  # Update the filename variable to the new name
-  fi
+  # Add student info to the file with corresponding program title
+  add_student_info "$file" "$name" "$class" "$roll_no" "$language" "${program_titles_array[$i]}"
   
   # Convert the file to a .txt version
   convert_to_text "$file"
@@ -186,5 +172,4 @@ for file in $files; do
 done
 
 # After processing all files, show a single success window
-zenity --info --text="All files have been processed successfully!\nStudent information has been added, files have been renamed (if selected), and converted to .txt.\nThe converted .txt files are located in the '$output_folder' folder."
-
+zenity --info --text="All files have been processed successfully!\nStudent information has been added, and converted to .txt.\nThe converted .txt files are located in the '$output_folder' folder."
